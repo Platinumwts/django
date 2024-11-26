@@ -1,0 +1,68 @@
+import MetaTrader5 as mt5
+import pandas as pd
+import numpy as np
+from sklearn.ensemble import RandomForestClassifier
+
+# Initialize MetaTrader 5
+if not mt5.initialize():
+    print("Initialization failed")
+    mt5.shutdown()
+
+# Login to the account
+login = 12345678
+password = "yourpassword"
+server = "broker_server"
+if not mt5.login(login, password, server=server):
+    print("Login failed")
+    mt5.shutdown()
+
+# Fetch market data
+def get_market_data(symbol, timeframe, num_bars):
+    rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, num_bars)
+    return pd.DataFrame(rates)
+
+# Example symbol and timeframe
+symbol = "EURUSD"
+timeframe = mt5.TIMEFRAME_M1
+data = get_market_data(symbol, timeframe, 1000)
+
+# Preprocess data
+data['returns'] = np.log(data['close'] / data['close'].shift(1))
+data['target'] = (data['returns'] > 0).astype(int)
+features = data[['open', 'high', 'low', 'close']].iloc[:-1]
+target = data['target'].iloc[:-1]
+
+# Train model
+model = RandomForestClassifier()
+model.fit(features, target)
+
+# Make predictions
+recent_data = features.iloc[-1].values.reshape(1, -1)
+prediction = model.predict(recent_data)
+
+# Place trade
+def place_trade(symbol, action, lot, price, sl, tp):
+    request = {
+        "action": mt5.TRADE_ACTION_DEAL,
+        "symbol": symbol,
+        "volume": lot,
+        "type": mt5.ORDER_TYPE_BUY if action == "buy" else mt5.ORDER_TYPE_SELL,
+        "price": price,
+        "sl": sl,
+        "tp": tp,
+        "deviation": 10,
+        "magic": 123456,
+        "comment": "Trade by AI",
+        "type_time": mt5.ORDER_TIME_GTC,
+        "type_filling": mt5.ORDER_FILLING_IOC,
+    }
+    return mt5.order_send(request)
+
+# Example trade execution
+if prediction == 1:
+    place_trade(symbol, "buy", 0.1, data['close'].iloc[-1], 1.05, 1.1)
+else:
+    place_trade(symbol, "sell", 0.1, data['close'].iloc[-1], 1.05, 1.1)
+
+# Shutdown MetaTrader 5
+mt5.shutdown()
